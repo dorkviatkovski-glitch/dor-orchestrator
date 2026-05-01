@@ -1,0 +1,116 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id            String   @id @default(uuid())
+  name          String
+  repoUrl       String   // e.g. https://github.com/user/repo
+  cloneUrl      String
+  branch        String   @default("main")
+  defaultBranch String   @default("main")
+  description   String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tasks Task[]
+
+  @@map("Project")
+}
+
+model Task {
+  id          String   @id @default(uuid())
+  projectId   String
+  title       String
+  description String
+  type        TaskType @default(enhancement)
+  status      TaskStatus @default(todo)
+  priority    Int      @default(1)
+  prdJson     String?  // Raw PRD JSON blob
+  progress    String?  // Current progress.txt content
+  branchName  String?  // Git branch created by agent
+  error       String?  // Last error message
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  project Project  @relation(fields: [projectId], references: [id])
+  runs    AgentRun[]
+
+  @@map("Task")
+}
+
+model AgentRun {
+  id          String    @id @default(uuid())
+  taskId      String
+  status      RunStatus @default(pending)
+  iteration   Int       @default(0)
+  maxIterations Int     @default(20)
+  model       String    @default("anthropic/claude-sonnet-4")
+  logs        String?   // Aggregated logs
+  summary     String?   // Final summary
+  error       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  logs_line AgentLog[]
+
+  @@map("AgentRun")
+}
+
+model AgentLog {
+  id        String   @id @default(uuid())
+  runId     String
+  timestamp DateTime @default(now())
+  level     LogLevel @default(info)
+  message   String
+  metadata  String? // JSON blob for structured data
+
+  run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@map("AgentLog")
+}
+
+enum TaskType {
+  enhancement
+  bugfix
+  refactor
+  docs
+  test
+}
+
+enum TaskStatus {
+  todo
+  claimed
+  running
+  human_review
+  merging
+  done
+  failed
+  cancelled
+}
+
+enum RunStatus {
+  pending
+  running
+  succeeded
+  failed
+  cancelled
+}
+
+enum LogLevel {
+  debug
+  info
+  warn
+  error
+}
