@@ -132,22 +132,22 @@ class OrchestratorEngine {
 
       // Initialize workspace for this task
       const workspaceDir = await this.prepareWorkspace(task)
-      
+
       // Write PRD and progress files
+      const fs = await import('fs/promises')
+      const path = await import('path')
       if (task.prdJson) {
-        const fs = await import('fs/promises')
-        const path = await import('path')
         await fs.writeFile(
           path.join(workspaceDir, 'prd.json'),
           task.prdJson,
           'utf-8'
         )
-        await fs.writeFile(
-          path.join(workspaceDir, 'progress.txt'),
-          '# Ralph Progress Log\nStarted: ' + new Date().toISOString() + '\n---\n',
-          'utf-8'
-        )
       }
+      await fs.writeFile(
+        path.join(workspaceDir, 'progress.txt'),
+        '# Ralph Progress Log\nStarted: ' + new Date().toISOString() + '\n---\n',
+        'utf-8'
+      )
 
       // LOG: Agent started
       await this.log(runId, 'info', `Agent started for task: ${task.title}`, {
@@ -155,31 +155,42 @@ class OrchestratorEngine {
         model: this.config.defaultModel,
       })
 
-      // TODO: Here we would delegate to subagent via delegate_task
-      // For now, mark as succeeded for demo
-      console.log(`[Orchestrator] Agent ${runId} would run in ${workspaceDir}`)
-      
-      // Simulate running for demo
-      await new Promise(resolve => setTimeout(resolve, 5000))
-
-      await prisma.agentRun.update({
-        where: { id: runId },
-        data: { 
-          status: RunStatus.succeeded, 
-          completedAt: new Date(),
-          summary: 'Task completed successfully (demo mode)',
-        },
+      // Run the agent loop using our agent runner
+      const { AgentRunner } = await import('./agent-runner')
+      const runner = new AgentRunner({
+        workspaceDir,
+        taskTitle: task.title,
+        taskDescription: task.description,
+        prdJson: task.prdJson ?? undefined,
+        model: this.config.defaultModel,
+        maxIterations: this.config.maxIterations,
+        runId,
       })
 
-      await prisma.task.update({
-        where: { id: task.id },
-        data: { 
-          status: TaskStatus.human_review,
-          completedAt: new Date(),
-        },
-      })
+      const result = await runner.run()
 
-      await this.log(runId, 'info', 'Task completed - awaiting human review')
+      if (result.success) {
+        await prisma.agentRun.update({
+          where: { id: runId },
+          data: {
+            status: RunStatus.succeeded,
+            completedAt: new Date(),
+            summary: result.summary,
+          },
+        })
+
+        await prisma.task.update({
+          where: { id: task.id },
+          data: {
+            status: TaskStatus.human_review,
+            completedAt: new Date(),
+          },
+        })
+
+        await this.log(runId, 'info', 'Task completed - awaiting human review')
+      } else {
+        throw new Error(result.error || 'Agent run failed')
+      }
 
     } catch (error) {
       const err = error instanceof Error ? error.message : String(error)
@@ -191,7 +202,7 @@ class OrchestratorEngine {
       })
 
       await prisma.task.update({
-        where: { id: runId },
+        where: { id: task.id },
         data: { status: TaskStatus.failed, error: err },
       })
 
@@ -214,10 +225,24 @@ class OrchestratorEngine {
     
     // If project exists, clone it
     if (task.project?.cloneUrl) {
-      // TODO: git clone into workspaceDir
-      console.log(`[Orchestrator] Would clone ${task.project.cloneUrl} into ${workspaceDir}`)
+      try {
+        const { execSync } = await import('child_process')
+        console.log(`[Orchestrator] Cloning ${task.project.cloneUrl} into ${workspaceDir}`)
+        execSync(
+          `git clone --depth 1 --branch ${task.project.branch || 'main'} ${task.project.cloneUrl} .`,
+          {
+            cwd: workspaceDir,
+            timeout: 120000,
+            stdio: 'pipe',
+          }
+        )
+        console.log(`[Orchestrator] Clone completed`)
+      } catch (error: any) {
+        console.error(`[Orchestrator] Clone failed: ${error.message}`)
+        // Continue anyway - the workspace exists
+      }
     }
-    
+
     return workspaceDir
   }
 
