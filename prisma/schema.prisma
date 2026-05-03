@@ -25,42 +25,44 @@ model Project {
 }
 
 model Task {
-  id          String   @id @default(uuid())
-  projectId   String
-  title       String
-  description String
-  type        TaskType @default(enhancement)
-  status      TaskStatus @default(todo)
-  priority    Int      @default(1)
-  prdJson     String?  // Raw PRD JSON blob
-  progress    String?  // Current progress.txt content
-  branchName  String?  // Git branch created by agent
-  error       String?  // Last error message
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  startedAt   DateTime?
-  completedAt DateTime?
+  id            String     @id @default(uuid())
+  projectId     String
+  linearIssueId String?    // Reference to Linear issue
+  title         String
+  description   String
+  type          TaskType   @default(enhancement)
+  status        TaskStatus @default(todo)
+  priority      Int        @default(1)
+  agentType     AgentType  @default(generic) // generic | codex
+  prdJson       String?    // Raw PRD JSON blob
+  progress      String?    // Current progress.txt content
+  branchName    String?    // Git branch created by agent
+  error         String?    // Last error message
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  startedAt     DateTime?
+  completedAt   DateTime?
 
-  project Project  @relation(fields: [projectId], references: [id])
+  project Project @relation(fields: [projectId], references: [id])
   runs    AgentRun[]
 
   @@map("Task")
 }
 
 model AgentRun {
-  id          String    @id @default(uuid())
-  taskId      String
-  status      RunStatus @default(pending)
-  iteration   Int       @default(0)
-  maxIterations Int     @default(20)
-  model       String    @default("anthropic/claude-sonnet-4")
-  logs        String?   // Aggregated logs
-  summary     String?   // Final summary
-  error       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  startedAt   DateTime?
-  completedAt DateTime?
+  id            String    @id @default(uuid())
+  taskId        String
+  status        RunStatus @default(pending)
+  iteration     Int       @default(0)
+  maxIterations Int       @default(20)
+  model         String    @default("anthropic/claude-sonnet-4")
+  logs          String?   // Aggregated logs
+  summary       String?   // Final summary
+  error         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  startedAt     DateTime?
+  completedAt   DateTime?
 
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
   logs_line AgentLog[]
@@ -113,4 +115,9 @@ enum LogLevel {
   info
   warn
   error
+}
+
+enum AgentType {
+  generic
+  codex
 }

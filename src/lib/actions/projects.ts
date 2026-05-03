@@ -42,8 +42,17 @@ export async function getProjectById(id: string) {
     where: { id },
     include: {
       tasks: {
-        orderBy: { createdAt: 'desc' },
-        take: 20,
+        orderBy: [
+          { status: 'asc' },
+          { priority: 'desc' },
+          { createdAt: 'desc' },
+        ],
+        include: {
+          runs: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
+        },
       },
     },
   })

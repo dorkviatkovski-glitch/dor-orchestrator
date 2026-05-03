@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/db'
-import { TaskStatus, TaskType } from '@prisma/client'
+import { TaskStatus, TaskType, RunStatus, AgentType } from '@prisma/client'
 
 export interface CreateTaskInput {
   projectId: string
@@ -11,15 +11,19 @@ export interface CreateTaskInput {
   type: TaskType
   priority?: number
   prdJson?: string
+  linearIssueId?: string
+  agentType?: AgentType
 }
 
 export async function createTask(input: CreateTaskInput) {
   const task = await prisma.task.create({
     data: {
       projectId: input.projectId,
+      linearIssueId: input.linearIssueId ?? null,
       title: input.title,
       description: input.description,
       type: input.type,
+      agentType: input.agentType ?? AgentType.generic,
       priority: input.priority ?? 1,
       prdJson: input.prdJson ?? null,
       status: TaskStatus.todo,
@@ -27,6 +31,7 @@ export async function createTask(input: CreateTaskInput) {
   })
   revalidatePath('/dashboard')
   revalidatePath('/tasks')
+  revalidatePath(`/projects/${input.projectId}`)
   return task
 }
 
@@ -55,13 +60,16 @@ export async function updateTaskStatus(taskId: string, status: TaskStatus) {
   })
   revalidatePath('/dashboard')
   revalidatePath('/tasks')
+  revalidatePath(`/projects/${task.projectId}`)
   return task
 }
 
 export async function deleteTask(taskId: string) {
-  await prisma.task.delete({ where: { id: taskId } })
+  const task = await prisma.task.delete({ where: { id: taskId } })
   revalidatePath('/dashboard')
   revalidatePath('/tasks')
+  revalidatePath(`/projects/${task.projectId}`)
+  return task
 }
 
 export async function getTaskById(taskId: string) {
@@ -79,4 +87,27 @@ export async function getTaskById(taskId: string) {
       },
     },
   })
+}
+
+export async function rerunTask(taskId: string) {
+  const task = await prisma.task.findUnique({ where: { id: taskId } })
+  if (!task) throw new Error('Task not found')
+
+  // Reset task to todo
+  await prisma.task.update({
+    where: { id: taskId },
+    data: { status: TaskStatus.todo },
+  })
+
+  revalidatePath('/dashboard')
+  revalidatePath('/tasks')
+  revalidatePath('/agents')
+  revalidatePath(`/projects/${task.projectId}`)
+  return task
+}
+
+export async function syncLinearAndRefresh() {
+  const { syncLinearIssues } = await import('@/lib/linear-sync')
+  const result = await syncLinearIssues()
+  return result
 }
